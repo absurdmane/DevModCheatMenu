@@ -12,7 +12,7 @@ namespace DevMenu
     {
         public const string Guid = "obenseuer.absurdmane.devmenu";
         public const string Name = "Dev, Mod & Cheat Menu";
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
 
         internal static ManualLogSource Log;
 
@@ -26,8 +26,9 @@ namespace DevMenu
             MenuKey = Config.Bind("Keys", "Menu", KeyCode.F9, "Opens and closes the cheat menu.");
             InspectKey = Config.Bind("Keys", "Inspect", KeyCode.None,
                 "None by default. Inspects what's under the crosshair: shows it on screen and writes it (only the latest) to BepInEx\\DevMenu\\inspect-latest.txt.");
-            ReloadKey = Config.Bind("Keys", "ReloadScripts", KeyCode.F10,
-                "Reloads the mods in BepInEx\\scripts (hot reload; also a button on the Tools tab).");
+            // "ReloadScripts" = F10 in 1.0.0; renamed so existing configs get the new default (an accidental press hangs the game).
+            ReloadKey = Config.Bind("Keys", "ReloadScriptsKey", KeyCode.None,
+                "None by default. Reloads the mods in BepInEx\\scripts (hot reload; also a button on the Tools tab).");
 
             Theme.Bind(Config);
             gameObject.AddComponent<Menu>();

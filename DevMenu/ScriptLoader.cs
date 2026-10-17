@@ -12,7 +12,8 @@ namespace DevMenu
 {
     /// <summary>
     /// Hot reload for mods in development. Plugins in <c>BepInEx\scripts</c> are not seen by BepInEx's loader; we load them
-    /// ourselves, each on its own GameObject, from the dll's bytes (so the file isn't locked and a rebuilt dll is a new assembly).
+    /// ourselves, each on its own GameObject, from the dll's bytes (so the file isn't locked). Mono hands back the assembly it
+    /// already has for the same name and version, so every load gets a unique assembly name (see <see cref="Unique"/>).
     /// Reload destroys the old plugin at once (its <c>OnDestroy</c> must undo its patches and UI) and loads the new build.
     /// Mono can't unload assemblies, so old copies stay in memory until the game quits: fine for development.
     /// </summary>
@@ -42,7 +43,7 @@ namespace DevMenu
 
         private void Update()
         {
-            if (Input.GetKeyDown(Plugin.ReloadKey.Value))
+            if (!SettingsEditor.IsCapturing && Input.GetKeyDown(Plugin.ReloadKey.Value))
                 ReloadAll();
         }
 
@@ -98,10 +99,7 @@ namespace DevMenu
 
         private static void Load(string file)
         {
-            string pdb = Path.ChangeExtension(file, ".pdb");
-            Assembly assembly = File.Exists(pdb)
-                ? Assembly.Load(File.ReadAllBytes(file), File.ReadAllBytes(pdb))
-                : Assembly.Load(File.ReadAllBytes(file));
+            Assembly assembly = Assembly.Load(Unique(file));
 
             foreach (Type type in SafeTypes(assembly).Where(t => !t.IsAbstract && typeof(BaseUnityPlugin).IsAssignableFrom(t)))
             {
@@ -120,6 +118,43 @@ namespace DevMenu
                 UnityChainloader.Instance.Plugins[meta.GUID] = plugin.Info;
                 loaded.Add(new Loaded { File = file, Guid = meta.GUID, Name = meta.Name, Holder = holder, Built = File.GetLastWriteTime(file) });
                 Plugin.Log.LogInfo($"Loaded {meta.Name} from scripts\\{Path.GetFileName(file)}");
+            }
+        }
+
+        private static int generation;
+
+        /// <summary>
+        /// The dll with its assembly name made unique ("Mod" -> "Mod.reload3"). Without it Mono returns the copy loaded first
+        /// (same name and version), and a reload silently runs the old code. Embedded symbols (DebugType embedded) are kept,
+        /// for line numbers in stack traces.
+        /// </summary>
+        private static byte[] Unique(string file)
+        {
+            generation++;
+            try
+            {
+                return Rename(file, symbols: true);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogDebug($"{Path.GetFileName(file)}: symbols not carried over: {e.Message}");
+                return Rename(file, symbols: false);
+            }
+        }
+
+        private static byte[] Rename(string file, bool symbols)
+        {
+            using (var input = new MemoryStream(File.ReadAllBytes(file)))
+            using (var definition = Mono.Cecil.AssemblyDefinition.ReadAssembly(input, new Mono.Cecil.ReaderParameters { ReadSymbols = symbols }))
+            using (var output = new MemoryStream())
+            {
+                definition.Name.Name += ".reload" + generation;
+                definition.Write(output, new Mono.Cecil.WriterParameters
+                {
+                    WriteSymbols = symbols,
+                    SymbolWriterProvider = symbols ? new Mono.Cecil.Cil.EmbeddedPortablePdbWriterProvider() : null,
+                });
+                return output.ToArray();
             }
         }
 

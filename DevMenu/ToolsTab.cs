@@ -28,7 +28,7 @@ namespace DevMenu
 
             Gui.Heading("Hot reload");
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button($"Reload scripts [{Plugin.ReloadKey.Value}]", GUILayout.ExpandWidth(false)))
+            if (GUILayout.Button(Plugin.ReloadKey.Value == KeyCode.None ? "Reload scripts" : $"Reload scripts [{Plugin.ReloadKey.Value}]", GUILayout.ExpandWidth(false)))
                 ScriptLoader.ReloadAll();
             GUILayout.Label("mods in BepInEx\\scripts (build them with -p:Deploy=scripts)");
             GUILayout.EndHorizontal();

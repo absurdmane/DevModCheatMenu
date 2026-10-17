@@ -25,5 +25,5 @@ Mark OK / FAIL + a note. Log: `BepInEx\LogOutput.log` — `Dev, Mod & Cheat Menu
       changes and the mod reacts (e.g. UNI `LightsNeedPower` off → lamps back).
 - [ ] Mods: EvenFasterSaveAndLoad → "Timings window on / off" shows a draggable window with the last load/save times.
 - [ ] Mods: the UNI section shows its status and buttons.
-- [ ] Hot reload: Unclicker built with -p:Deploy=scripts loads at start (Tools lists it, Mods tab shows its section); F10 reloads it:
+- [ ] Hot reload: Unclicker built with -p:Deploy=scripts loads at start (Tools lists it, Mods tab shows its section); Tools → Reload scripts reloads it:
   no doubled buttons or patches (one click = one craft), the info popup's Plant button comes back when it should, log lines not doubled.

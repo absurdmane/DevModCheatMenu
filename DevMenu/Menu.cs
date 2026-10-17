@@ -81,9 +81,11 @@ namespace DevMenu
 
         private void Update()
         {
-            if (Input.GetKeyDown(Plugin.MenuKey.Value))
+            // While a key is being set in the Mods tab, the press only sets the key.
+            bool hotkeys = !SettingsEditor.IsCapturing;
+            if (hotkeys && Input.GetKeyDown(Plugin.MenuKey.Value))
                 SetOpen(!open);
-            if (!open && Input.GetKeyDown(Plugin.InspectKey.Value))
+            if (hotkeys && !open && Input.GetKeyDown(Plugin.InspectKey.Value))
                 Run("Inspect", () => inspector.CaptureAndSave());
             foreach (Tab tab in tabs)
                 Run(tab.Title, tab.Tick);

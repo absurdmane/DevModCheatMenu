@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using BepInEx.Configuration;
+using BepInEx.Unity.Mono.Configuration;
 using UnityEngine;
 
 namespace DevMenu
 {
     /// <summary>
-    /// Edits a plugin's BepInEx config in place: bools as toggles, small enums as a dropdown, everything else (numbers, strings, big enums
-    /// like KeyCode) as a text field applied as soon as it parses. A change saves the config and fires the mod's SettingChanged, as
+    /// Edits a plugin's BepInEx config in place: bools as toggles, small enums as a dropdown, keys (KeyCode, KeyboardShortcut) by
+    /// pressing them, everything else (numbers, strings, big enums) as a text field applied as soon as it parses. A change saves the config and fires the mod's SettingChanged, as
     /// ConfigurationManager does.
     /// </summary>
     internal static class SettingsEditor
@@ -68,6 +69,12 @@ namespace DevMenu
                 return;
             }
 
+            if (type == typeof(KeyCode) || type == typeof(KeyboardShortcut))
+            {
+                KeyCapture(entry, type, value);
+                return;
+            }
+
             if (type == typeof(int) || type == typeof(float) || type == typeof(double))
             {
                 Stepper(entry, type, Convert.ToDouble(value, CultureInfo.InvariantCulture));
@@ -115,6 +122,81 @@ namespace DevMenu
             if (entry.Description?.AcceptableValues != null)
                 boxed = entry.Description.AcceptableValues.Clamp(boxed);
             Set(entry, boxed);
+        }
+
+        // The key entry waiting for a key press, and the last frame its button was drawn.
+        private static ConfigEntryBase Capturing;
+        private static int capturingDrawn;
+
+        /// <summary>
+        /// A key is being set: hotkeys are off meanwhile, so the press only sets the key. Ends by itself once the button isn't
+        /// drawn any more (menu closed, another tab).
+        /// </summary>
+        public static bool IsCapturing
+        {
+            get
+            {
+                if (Capturing != null && Time.frameCount - capturingDrawn > 2)
+                    Capturing = null;
+                return Capturing != null;
+            }
+        }
+
+        /// <summary>
+        /// A button with the current key; click it, then press the new key (with Shift/Ctrl/Alt for a shortcut).
+        /// Esc cancels, Backspace or Delete clears the key (None).
+        /// </summary>
+        private static void KeyCapture(ConfigEntryBase entry, Type type, object value)
+        {
+            bool capturing = Capturing == entry;
+            if (capturing)
+                capturingDrawn = Time.frameCount;
+            Event e = Event.current;
+            if (capturing && e.type == EventType.KeyDown && e.keyCode != KeyCode.None && !IsModifier(e.keyCode))
+            {
+                if (e.keyCode != KeyCode.Escape)
+                {
+                    KeyCode key = e.keyCode == KeyCode.Backspace || e.keyCode == KeyCode.Delete ? KeyCode.None : e.keyCode;
+                    if (type == typeof(KeyCode))
+                        Set(entry, key);
+                    else
+                        Set(entry, key == KeyCode.None ? KeyboardShortcut.Empty : new KeyboardShortcut(key, Modifiers(e)));
+                }
+                Capturing = null;
+                e.Use();
+                return;
+            }
+
+            string shown = capturing ? "Press a key…" : KeyName(value);
+            if (GUILayout.Button(shown, Gui.Fit("Press a key…", 140)))
+            {
+                Capturing = capturing ? null : entry;
+                capturingDrawn = Time.frameCount;
+            }
+            if (capturing)
+                GUILayout.Label("Esc: cancel, Backspace: none", GUILayout.ExpandWidth(false));
+        }
+
+        private static string KeyName(object value)
+        {
+            string name = value is KeyboardShortcut shortcut ? shortcut.ToString() : value?.ToString();
+            return string.IsNullOrEmpty(name) || name == nameof(KeyCode.None) ? "None" : name;
+        }
+
+        private static bool IsModifier(KeyCode key) =>
+            key == KeyCode.LeftShift || key == KeyCode.RightShift || key == KeyCode.LeftControl || key == KeyCode.RightControl ||
+            key == KeyCode.LeftAlt || key == KeyCode.RightAlt || key == KeyCode.LeftCommand || key == KeyCode.RightCommand;
+
+        private static KeyCode[] Modifiers(Event e)
+        {
+            var modifiers = new List<KeyCode>();
+            if (e.control)
+                modifiers.Add(KeyCode.LeftControl);
+            if (e.shift)
+                modifiers.Add(KeyCode.LeftShift);
+            if (e.alt)
+                modifiers.Add(KeyCode.LeftAlt);
+            return modifiers.ToArray();
         }
 
         private static double? Bound(AcceptableValueBase range, string property)
