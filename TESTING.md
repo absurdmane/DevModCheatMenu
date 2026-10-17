@@ -1,6 +1,6 @@
 # DevMenu — check list
 
-Mark OK / FAIL + a note. Log: `BepInEx\LogOutput.log` — `DevMenu 0.1.0 loaded`, `Dev menu section: Utilities Not Included`.
+Mark OK / FAIL + a note. Log: `BepInEx\LogOutput.log` — `Dev, Mod & Cheat Menu 1.0.0 loaded`, `Dev menu section: Utilities Not Included`.
 
 - [ ] F9 opens the window in the Tenement; the cursor is free, the character doesn't move or look around; F9 / X closes it and control comes back.
 - [ ] Typing in a search field doesn't trigger game hotkeys (inventory, map, ...).
