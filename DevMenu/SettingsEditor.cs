@@ -137,14 +137,22 @@ namespace DevMenu
             get
             {
                 if (Capturing != null && Time.frameCount - capturingDrawn > 2)
+                {
                     Capturing = null;
+                    pressed = KeyCode.None;
+                }
                 return Capturing != null;
             }
         }
 
+        // The key pressed while capturing, set once it's released: set on the press, the same press would also reach the
+        // hotkey checks (DevMenu's and other mods' Update) under the new binding and fire the action at once.
+        private static KeyCode pressed;
+        private static KeyCode[] pressedModifiers;
+
         /// <summary>
         /// A button with the current key; click it, then press the new key (with Shift/Ctrl/Alt for a shortcut).
-        /// Esc cancels, Backspace or Delete clears the key (None).
+        /// Esc cancels, Backspace or Delete clears the key (None). The key is set when it's released.
         /// </summary>
         private static void KeyCapture(ConfigEntryBase entry, Type type, object value)
         {
@@ -154,24 +162,36 @@ namespace DevMenu
             Event e = Event.current;
             if (capturing && e.type == EventType.KeyDown && e.keyCode != KeyCode.None && !IsModifier(e.keyCode))
             {
-                if (e.keyCode != KeyCode.Escape)
+                if (pressed == KeyCode.None)
                 {
-                    KeyCode key = e.keyCode == KeyCode.Backspace || e.keyCode == KeyCode.Delete ? KeyCode.None : e.keyCode;
+                    pressed = e.keyCode;
+                    pressedModifiers = Modifiers(e);
+                }
+                e.Use();
+            }
+            // Only on Layout: the button text and the hint below change, and IMGUI wants the same controls in Layout and Repaint.
+            if (capturing && pressed != KeyCode.None && e.type == EventType.Layout && !Input.GetKey(pressed))
+            {
+                if (pressed != KeyCode.Escape)
+                {
+                    KeyCode key = pressed == KeyCode.Backspace || pressed == KeyCode.Delete ? KeyCode.None : pressed;
                     if (type == typeof(KeyCode))
                         Set(entry, key);
                     else
-                        Set(entry, key == KeyCode.None ? KeyboardShortcut.Empty : new KeyboardShortcut(key, Modifiers(e)));
+                        Set(entry, key == KeyCode.None ? KeyboardShortcut.Empty : new KeyboardShortcut(key, pressedModifiers));
                 }
                 Capturing = null;
-                e.Use();
-                return;
+                pressed = KeyCode.None;
+                capturing = false;
+                value = entry.BoxedValue;
             }
 
-            string shown = capturing ? "Press a key…" : KeyName(value);
+            string shown = capturing ? (pressed != KeyCode.None ? pressed + "…" : "Press a key…") : KeyName(value);
             if (GUILayout.Button(shown, Gui.Fit("Press a key…", 140)))
             {
                 Capturing = capturing ? null : entry;
                 capturingDrawn = Time.frameCount;
+                pressed = KeyCode.None;
             }
             if (capturing)
                 GUILayout.Label("Esc: cancel, Backspace: none", GUILayout.ExpandWidth(false));

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -26,6 +27,10 @@ namespace DevMenu
             public string Name;
             public GameObject Holder;
             public DateTime Built;
+            public long Size;
+
+            public bool Changed => !System.IO.File.Exists(File) || System.IO.File.GetLastWriteTime(File) != Built ||
+                                   new FileInfo(File).Length != Size;
         }
 
         private static readonly List<Loaded> loaded = new List<Loaded>();
@@ -44,23 +49,37 @@ namespace DevMenu
         private void Update()
         {
             if (!SettingsEditor.IsCapturing && Input.GetKeyDown(Plugin.ReloadKey.Value))
-                ReloadAll();
+                Reload(all: false);
         }
 
-        public static void ReloadAll() => Menu.Run("Reload scripts", () =>
+        /// <summary>
+        /// Reloads the dlls that changed since they were loaded, and loads new ones; <paramref name="all"/> reloads every one.
+        /// Each mod's unload and load time goes to the log.
+        /// </summary>
+        public static void Reload(bool all) => Menu.Run("Reload scripts", () =>
         {
-            int count = UnloadAll();
+            long start = Stopwatch.GetTimestamp();
+            int unloaded = Unload(all);
+            int unchanged = loaded.Count;
             LoadAll();
-            Menu.Notify($"Scripts reloaded: {loaded.Count} plugin(s)" + (count != loaded.Count ? $" (was {count})" : ""));
+            int reloaded = loaded.Count - unchanged;
+            string summary = reloaded == 0 && unloaded == 0
+                ? "Scripts: nothing changed"
+                : $"Scripts reloaded: {reloaded} plugin(s), {unchanged} unchanged, {Ms(start):0} ms";
+            Plugin.Log.LogInfo(summary);
+            Menu.Notify(summary);
         });
 
-        private static int UnloadAll()
+        private static int Unload(bool all)
         {
-            int count = loaded.Count;
+            int unloaded = 0;
             // Last loaded first, in case one builds on another.
             for (int i = loaded.Count - 1; i >= 0; i--)
             {
                 Loaded l = loaded[i];
+                if (!all && !l.Changed)
+                    continue;
+                long start = Stopwatch.GetTimestamp();
                 try
                 {
                     // At once, not at the end of the frame: the new copy patches the same methods right after.
@@ -73,17 +92,22 @@ namespace DevMenu
                 }
                 UnityChainloader.Instance.Plugins.Remove(l.Guid);
                 RemoveLogSource(l.Name);
-                Plugin.Log.LogInfo($"Unloaded {l.Name}");
+                loaded.RemoveAt(i);
+                unloaded++;
+                Plugin.Log.LogInfo($"Unloaded {l.Name} ({Ms(start):0} ms)");
             }
-            loaded.Clear();
-            return count;
+            return unloaded;
         }
+
+        private static double Ms(long since) => (Stopwatch.GetTimestamp() - since) * 1000.0 / Stopwatch.Frequency;
 
         private static void LoadAll()
         {
             Directory.CreateDirectory(Folder);
             foreach (string file in Directory.GetFiles(Folder, "*.dll", SearchOption.AllDirectories).OrderBy(f => f))
             {
+                if (loaded.Any(l => string.Equals(l.File, file, StringComparison.OrdinalIgnoreCase)))
+                    continue; // unchanged, still loaded
                 try
                 {
                     Load(file);
@@ -99,6 +123,9 @@ namespace DevMenu
 
         private static void Load(string file)
         {
+            long start = Stopwatch.GetTimestamp();
+            DateTime built = File.GetLastWriteTime(file);
+            long size = new FileInfo(file).Length;
             Assembly assembly = Assembly.Load(Unique(file));
 
             foreach (Type type in SafeTypes(assembly).Where(t => !t.IsAbstract && typeof(BaseUnityPlugin).IsAssignableFrom(t)))
@@ -116,8 +143,8 @@ namespace DevMenu
                 DontDestroyOnLoad(holder);
                 var plugin = (BaseUnityPlugin)holder.AddComponent(type); // Awake runs here
                 UnityChainloader.Instance.Plugins[meta.GUID] = plugin.Info;
-                loaded.Add(new Loaded { File = file, Guid = meta.GUID, Name = meta.Name, Holder = holder, Built = File.GetLastWriteTime(file) });
-                Plugin.Log.LogInfo($"Loaded {meta.Name} from scripts\\{Path.GetFileName(file)}");
+                loaded.Add(new Loaded { File = file, Guid = meta.GUID, Name = meta.Name, Holder = holder, Built = built, Size = size });
+                Plugin.Log.LogInfo($"Loaded {meta.Name} from scripts\\{Path.GetFileName(file)} ({Ms(start):0} ms)");
             }
         }
 

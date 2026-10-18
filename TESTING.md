@@ -13,7 +13,7 @@ Mark OK / FAIL + a note. Log: `BepInEx\LogOutput.log` — `Dev, Mod & Cheat Menu
 - [ ] Furniture: search, add one; it shows in the build menu. Skin > 0 gives that skin.
 - [ ] Teleport: save a point, walk away, teleport back; points survive a restart.
 - [ ] Teleport: a point saved in another scene loads that scene and puts you on the point.
-- [ ] Teleport: Locations fill up as scenes are visited; an entrypoint click loads the scene there; an unvisited build scene loads at its default spawn.
+- [ ] Teleport: Locations fill up as scenes are visited; an entrypoint click loads the scene there; travel is refused while sitting/sleeping/waiting and in a conversation; Interior Bazaar Rob-in loads (player report of an endless loading screen).
 - [ ] Mods: sections start collapsed; hovering a setting row shows its description next to the mouse; `[Mod] Enabled` is the last row.
 - [ ] Inspect key (set it first) on a station, a fridge, a sink, a lamp: the overlay shows, `inspect-latest.txt` holds that one report.
 - [ ] Tools: "Reload game" reloads with the changes kept; "Reload last save" drops them.
@@ -25,5 +25,5 @@ Mark OK / FAIL + a note. Log: `BepInEx\LogOutput.log` — `Dev, Mod & Cheat Menu
       changes and the mod reacts (e.g. UNI `LightsNeedPower` off → lamps back).
 - [ ] Mods: EvenFasterSaveAndLoad → "Timings window on / off" shows a draggable window with the last load/save times.
 - [ ] Mods: the UNI section shows its status and buttons.
-- [ ] Hot reload: Unclicker built with -p:Deploy=scripts loads at start (Tools lists it, Mods tab shows its section); Tools → Reload scripts reloads it:
+- [ ] Hot reload: Unclicker built with -p:Deploy=scripts loads at start (Tools lists it, Mods tab shows its section); Tools → Reload changed reloads it (and only it):
   no doubled buttons or patches (one click = one craft), the info popup's Plant button comes back when it should, log lines not doubled.

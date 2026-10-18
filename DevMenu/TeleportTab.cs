@@ -13,8 +13,9 @@ namespace DevMenu
     /// Named teleport points per scene, kept in BepInEx\config\obenseuer.absurdmane.devmenu.teleports.txt, and travel to other scenes.
     /// Travel goes through the game's own level change (<c>SaveController.ChangeLevel</c>: autosave, loading screen) to an entrypoint.
     /// Entrypoint names are only known for a loaded scene, so they are learned as scenes are visited (the scene's own entrypoints and
-    /// the ones its doors lead to) and kept in ...devmenu.locations.txt. An unknown entrypoint name makes the game log
-    /// "Entrypoint ... not found!" and spawn the player at the scene's default entrypoint, which is how unvisited scenes are reached.
+    /// the ones its doors lead to) and kept in ...devmenu.locations.txt. Only those scenes are offered: the build also has menus
+    /// and test scenes, and the autosave written before the load would then point at a scene that can't be played.
+    /// Travel is refused when a door would be (sleeping, sitting, waiting, in a conversation) and sets what a door sets.
     /// A point in another scene: travel there, then move to the point once loading is done.
     /// </summary>
     internal sealed class TeleportTab : Tab
@@ -45,7 +46,6 @@ namespace DevMenu
         private Dictionary<string, SortedSet<string>> locations;
         private string learnedScene;
         private readonly HashSet<string> expanded = new HashSet<string>();
-        private bool showUnvisited;
 
         private Point pending;
         private float pendingAt = -1f;
@@ -162,22 +162,6 @@ namespace DevMenu
                     if (GUILayout.Button("      " + entry, Gui.Row))
                         Menu.Run("Travel", () => Travel(kv.Key, entry));
             }
-
-            List<string> unvisited = BuildScenes().Where(s => !locations.ContainsKey(s)).ToList();
-            if (unvisited.Count == 0)
-                return;
-            if (GUILayout.Button($"{(showUnvisited ? "▼" : "►")}  <b>Other scenes in the build</b>  ({unvisited.Count}; default spawn, may be menus or test scenes)", Gui.Header))
-                showUnvisited = !showUnvisited;
-            if (showUnvisited)
-                foreach (string s in unvisited)
-                    if (GUILayout.Button("      " + s, Gui.Row))
-                        Menu.Run("Travel", () => Travel(s, DefaultEntrypoint));
-        }
-
-        private static IEnumerable<string> BuildScenes()
-        {
-            for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
-                yield return Path.GetFileNameWithoutExtension(SceneUtility.GetScenePathByBuildIndex(i));
         }
 
         private void TravelToPoint(Point p)
@@ -194,6 +178,31 @@ namespace DevMenu
             if (SaveController.Loading)
             {
                 Menu.Notify("Already loading");
+                return false;
+            }
+            // Same conditions as a door (Changelevel.ChangeLevel): not while sleeping, sitting, waiting, being arrested...
+            if (WaitingController.instance != null && WaitingController.instance.waitingType != WaitingController.Type.None)
+            {
+                Menu.Notify($"Can't travel while {WaitingController.instance.waitingType}");
+                return false;
+            }
+            // A chair (or a bed, a workbench...) locks movement with itself as the holder; once the scene is gone the holder is
+            // destroyed but stays in the list, and the player can't walk any more.
+            if (InteractableChair.PlayerIsSitting)
+            {
+                Menu.Notify("Can't travel while sitting");
+                return false;
+            }
+            GameObject menu = Menu.Instance != null ? Menu.Instance.gameObject : null;
+            GameObject holder = OpenSewerCharacterController.instance?.disabledList.FirstOrDefault(h => h != null && h != menu);
+            if (holder != null)
+            {
+                Menu.Notify("Can't travel while using something");
+                return false;
+            }
+            if (DialogueController.instance != null && DialogueController.instance.DialogueActive)
+            {
+                Menu.Notify("Can't travel during a conversation");
                 return false;
             }
             if (!SaveController.CheckIfLevelExists(scene))
@@ -214,6 +223,11 @@ namespace DevMenu
             }
             Menu.Instance?.Close();
             Menu.Notify($"Travelling to {scene} / {entrypoint}");
+            // What a door sets before the level change; followers, police and robbers read it to know where the player went.
+            Changelevel.entrypointNameEnter = null;
+            Changelevel.entrypointNameExit = entrypoint;
+            Changelevel.entrypointScene = scene;
+            Changelevel.changeLevelDelayActive = false;
             SaveController.ChangeLevel(scene, entrypoint);
             return true;
         }

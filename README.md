@@ -77,7 +77,7 @@ namespace MyMod
 ### Hot reload
 
 1. Put your mod's dll in `BepInEx/scripts/<YourMod>/` instead of `BepInEx/plugins`. This menu loads it from there; BepInEx doesn't.
-2. Rebuild the dll while the game runs, then press Tools → Reload scripts (or your `ReloadScriptsKey`, none by default). The old copy is unloaded and the new one loaded.
+2. Rebuild the dll while the game runs, then press Tools → Reload changed (or your `ReloadScriptsKey`, none by default). The mods whose dll changed are unloaded and loaded again; Reload all reloads every one.
 3. Your plugin must clean up after itself in `OnDestroy`: unpatch Harmony (`harmony.UnpatchSelf()`), unsubscribe from events,
    destroy any UI or objects it created. Otherwise the old and the new copy both run.
 4. Anything your mod only sets up when a scene or object starts won't happen again for what's already there. Set it up for

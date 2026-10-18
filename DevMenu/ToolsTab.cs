@@ -28,8 +28,10 @@ namespace DevMenu
 
             Gui.Heading("Hot reload");
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button(Plugin.ReloadKey.Value == KeyCode.None ? "Reload scripts" : $"Reload scripts [{Plugin.ReloadKey.Value}]", GUILayout.ExpandWidth(false)))
-                ScriptLoader.ReloadAll();
+            if (GUILayout.Button(Plugin.ReloadKey.Value == KeyCode.None ? "Reload changed" : $"Reload changed [{Plugin.ReloadKey.Value}]", GUILayout.ExpandWidth(false)))
+                ScriptLoader.Reload(all: false);
+            if (GUILayout.Button("Reload all", GUILayout.ExpandWidth(false)))
+                ScriptLoader.Reload(all: true);
             GUILayout.Label("mods in BepInEx\\scripts (build them with -p:Deploy=scripts)");
             GUILayout.EndHorizontal();
             foreach ((string name, string file, System.DateTime built) in ScriptLoader.Plugins)
