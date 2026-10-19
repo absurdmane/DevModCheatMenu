@@ -30,7 +30,11 @@ namespace DevMenu
         {
             Capture(saveToFile: true, deep: true);
             overlayUntil = Time.unscaledTime + 8f;
+            frameUntil = Time.unscaledTime + 3f;
         }
+
+        // The key with the menu closed shows the frame for a few seconds; with the menu open it's always shown.
+        private float frameUntil;
 
         private void Capture(bool saveToFile, bool deep)
         {
@@ -78,7 +82,26 @@ namespace DevMenu
             Menu.Notify($"Inspected {(target != null ? target.name : "nothing")} → inspect-latest.txt");
         }
 
+        /// <summary>The UI page: the game's uGUI. Its clicks select UI elements instead of objects.</summary>
+        public readonly UiInspector Ui = new UiInspector();
+
+        public bool UiPage { get; set; }
+
         public override void Draw()
+        {
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Toggle(!UiPage, "World", GUI.skin.button, GUILayout.ExpandWidth(false)))
+                UiPage = false;
+            if (GUILayout.Toggle(UiPage, "UI", GUI.skin.button, GUILayout.ExpandWidth(false)))
+                UiPage = true;
+            GUILayout.EndHorizontal();
+            if (UiPage)
+                Ui.Draw();
+            else
+                DrawWorld();
+        }
+
+        private void DrawWorld()
         {
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Refresh", GUILayout.ExpandWidth(false)))
@@ -95,18 +118,64 @@ namespace DevMenu
                 DrawHierarchy();
             showReport = GUILayout.Toggle(showReport, showReport ? "▼ Details (components, materials, references)" : "► Details (components, materials, references)", GUI.skin.button);
             if (showReport)
-                GUILayout.TextArea(report);
+            {
+                if (!ReferenceEquals(shownFrom, report))
+                {
+                    shownFrom = report;
+                    shownReport = Shown(report);
+                }
+                GUILayout.TextArea(shownReport);
+            }
         }
 
         private bool showReport = true;
+        private string shownFrom, shownReport;
+
+        // IMGUI measures and draws the whole string every frame: a long one stalls the game.
+        private const int MaxShown = 6000;
+
+        internal static string Shown(string text) =>
+            text.Length <= MaxShown ? text : text.Substring(0, MaxShown) + $"\n... {text.Length - MaxShown} more characters: Save to file for all of it.";
+
+        // ---- the green box around the selected object (drawn while the menu is open) ----
+
+        private GameObject boxFor;
+        private Vector3[] box;
+        private float boxAt;
+        private bool boxCheap;
+
+        public void DrawFrame()
+        {
+            if (target == null || !target.activeInHierarchy || Event.current.type != EventType.Repaint)
+                return;
+            // Measured again a few times a second, as the object may move; a big hierarchy (slow to walk) only once.
+            if (boxFor != target || (boxCheap && Time.unscaledTime - boxAt > 0.25f))
+            {
+                float start = Time.realtimeSinceStartup;
+                boxFor = target;
+                box = Frame.BoxAround(target);
+                boxAt = Time.unscaledTime;
+                boxCheap = Time.realtimeSinceStartup - start < 0.001f;
+            }
+            Frame.Box(Camera.main, box);
+        }
 
         // ---- hierarchy browser: parents and children, each a button that selects it ----
 
         private const int MaxChildren = 200;
 
+        // Rows shown at first and added per "Show more": IMGUI lays out every row on every event.
+        internal const int RowsPerPage = 50;
+
+        // The rows' labels are made once per selection: each takes several GetComponent calls, and IMGUI asks every event.
         private GameObject listedFor;
         private Transform[] parents = new Transform[0];
+        private string[] parentLabels = new string[0];
         private Transform[] children = new Transform[0];
+        private string[] childLabels = new string[0];
+        private string selectedLabel = "";
+        private int shownChildren;
+
         private void Select(GameObject go)
         {
             target = go;
@@ -121,42 +190,53 @@ namespace DevMenu
                 up.Add(t);
             up.Reverse();
             parents = up.ToArray();
+            parentLabels = parents.Select(Label).ToArray();
             children = target.transform.Cast<Transform>().Take(MaxChildren).ToArray();
+            childLabels = children.Select(Label).ToArray();
+            selectedLabel = $"► Selected: {target.name}   {Tags(target.transform)}";
+            shownChildren = RowsPerPage;
         }
+
+        private static string Label(Transform t) => $"{t.name}   {Tags(t)}";
 
         private void DrawHierarchy()
         {
-            if (listedFor != target)
+            // A new selection's rows appear at the next Layout event; until then the old ones are drawn, so every event of a frame
+            // sees the same controls (IMGUI requires it).
+            if (listedFor != target && Event.current.type == EventType.Layout)
                 BuildLists();
 
             GUILayout.Label("Parents (top of the scene first; click to select):");
             for (int i = 0; i < parents.Length; i++)
-                if (parents[i] != null && Row(parents[i], i * 12f))
+                if (parents[i] != null && Row(parentLabels[i], i * 12f))
                 {
                     Select(parents[i].gameObject);
                     return;
                 }
 
-            GUILayout.Label($"► Selected: {target.name}   {Tags(target.transform)}");
+            GUILayout.Label(selectedLabel);
 
             GUILayout.Label(children.Length == 0 ? "Children: none" : $"Children ({target.transform.childCount}):");
-            foreach (Transform child in children)
-                if (child != null && Row(child, 12f))
+            int shown = Mathf.Min(shownChildren, children.Length);
+            for (int i = 0; i < shown; i++)
+                if (children[i] != null && Row(childLabels[i], 12f))
                 {
-                    Select(child.gameObject);
+                    Select(children[i].gameObject);
                     return;
                 }
+            if (shown < children.Length && GUILayout.Button($"Show more ({children.Length - shown} left)", GUILayout.ExpandWidth(false)))
+                shownChildren += RowsPerPage;
         }
 
         private static GUIStyle leftButton;
 
-        private static GUIStyle LeftButton => leftButton ?? (leftButton = new GUIStyle(GUI.skin.button) { alignment = TextAnchor.MiddleLeft, wordWrap = true });
+        internal static GUIStyle LeftButton => leftButton ?? (leftButton = new GUIStyle(GUI.skin.button) { alignment = TextAnchor.MiddleLeft, wordWrap = true });
 
-        private static bool Row(Transform t, float indent)
+        internal static bool Row(string label, float indent)
         {
             GUILayout.BeginHorizontal();
             GUILayout.Space(indent);
-            bool clicked = GUILayout.Button($"{t.name}   {Tags(t)}", LeftButton);
+            bool clicked = GUILayout.Button(label, LeftButton);
             GUILayout.EndHorizontal();
             return clicked;
         }
@@ -188,11 +268,14 @@ namespace DevMenu
 
         public override void DrawOverlay()
         {
+            Ui.DrawOverlay();
+            if (Time.unscaledTime < frameUntil)
+                DrawFrame();
             if (Time.unscaledTime >= overlayUntil)
                 return;
             GUILayout.BeginArea(new Rect(20, 80, 520, Screen.height - 160), GUI.skin.box);
             overlayScroll = GUILayout.BeginScrollView(overlayScroll);
-            GUILayout.Label(report);
+            GUILayout.Label(shownReport ?? Shown(report));
             GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
@@ -216,6 +299,8 @@ namespace DevMenu
             return s.ToString();
         }
 
+        private const int MaxRenderers = 40;
+
         private static readonly string[] GlowProperties = { "_EmissionColor", "_EmissiveColor", "_EmissiveIntensity", "_Emission", "_Glow", "_Color", "_BaseColor" };
 
         /// <summary>
@@ -226,8 +311,10 @@ namespace DevMenu
         {
             FurniturePlaceable furniture = go.GetComponentInParent<FurniturePlaceable>();
             Transform root = furniture != null ? furniture.transform : go.transform;
-            s.AppendLine($"Renderers under '{root.name}':");
-            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+            s.AppendLine($"Renderers under '{root.name}' ({renderers.Length}):");
+            // A building root has thousands: listing them all froze the game.
+            foreach (Renderer renderer in renderers.Take(MaxRenderers))
             {
                 s.AppendLine($"  {renderer.name} ({renderer.GetType().Name}, enabled={renderer.enabled && renderer.gameObject.activeInHierarchy})");
                 foreach (Material m in renderer.sharedMaterials)
@@ -238,6 +325,8 @@ namespace DevMenu
                     s.AppendLine($"    {m.name} shader={m.shader?.name} keywords=[{string.Join(",", m.shaderKeywords)}] {string.Join(" ", values)}");
                 }
             }
+            if (renderers.Length > MaxRenderers)
+                s.AppendLine($"  ... {renderers.Length - MaxRenderers} more");
         }
 
         private static string Value(Material m, string property)
@@ -254,7 +343,7 @@ namespace DevMenu
             return m.GetFloat(property).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        private static void Section(StringBuilder s, string name, Action body)
+        internal static void Section(StringBuilder s, string name, Action body)
         {
             try
             {
@@ -266,7 +355,7 @@ namespace DevMenu
             }
         }
 
-        private static string PathOf(Transform t)
+        internal static string PathOf(Transform t)
         {
             var parts = new System.Collections.Generic.List<string>();
             for (; t != null; t = t.parent)

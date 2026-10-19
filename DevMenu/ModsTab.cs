@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
 using BepInEx.Unity.Mono.Bootstrap;
@@ -55,12 +54,7 @@ namespace DevMenu
                 .ThenBy(i => i.Metadata.Name, StringComparer.OrdinalIgnoreCase);
             foreach (var info in plugins)
             {
-                Type pluginType = info.Instance.GetType();
-                // Only a static class: an unrelated class that happens to be named DevMenu in some mod isn't taken for a section.
-                Type menu = pluginType.Assembly.GetType(pluginType.Namespace + ".DevMenu");
-                if (menu != null && !(menu.IsAbstract && menu.IsSealed))
-                    menu = null;
-                MethodInfo[] methods = menu?.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly) ?? new MethodInfo[0];
+                ButtonClass menu = ButtonClass.Find(info.Instance.GetType(), "DevMenu");
                 BepInEx.Configuration.ConfigFile config = (info.Instance as BepInEx.Unity.Mono.BaseUnityPlugin)?.Config;
                 // Nothing to show: no settings and no buttons.
                 if (menu == null && (config == null || config.Count == 0))
@@ -69,11 +63,8 @@ namespace DevMenu
                 {
                     Name = info.Metadata.Name,
                     Config = config,
-                    Status = methods.FirstOrDefault(m => m.Name == "Status" && m.ReturnType == typeof(string) && m.GetParameters().Length == 0),
-                    Buttons = methods
-                        .Where(m => m.ReturnType == typeof(void) && m.GetParameters().Length == 0)
-                        .Select(m => (m.GetCustomAttribute<DescriptionAttribute>()?.Description ?? m.Name, m))
-                        .ToList()
+                    Status = menu?.Status,
+                    Buttons = menu?.Buttons ?? new List<(string, MethodInfo)>()
                 });
                 Plugin.Log.LogInfo($"Dev menu section: {info.Metadata.Name}");
             }
@@ -97,14 +88,14 @@ namespace DevMenu
                     if (Time.unscaledTime >= section.StatusAt)
                     {
                         section.StatusAt = Time.unscaledTime + StatusInterval;
-                        section.StatusText = Invoke(section.Status) as string ?? "";
+                        section.StatusText = ButtonClass.Invoke(section.Status) as string ?? "";
                     }
                     GUILayout.Label(section.StatusText);
                 }
                 foreach ((string label, MethodInfo method) in section.Buttons)
                     if (GUILayout.Button(label, GUILayout.ExpandWidth(false)))
                     {
-                        Invoke(method);
+                        ButtonClass.Invoke(method);
                         Menu.Notify($"{section.Name}: {label}");
                     }
                 if (section.Config != null && section.Config.Count > 0)
@@ -112,20 +103,6 @@ namespace DevMenu
                     Gui.Heading("Settings");
                     SettingsEditor.Draw(section.Config);
                 }
-            }
-        }
-
-        private static object Invoke(MethodInfo method)
-        {
-            try
-            {
-                return method.Invoke(null, null);
-            }
-            catch (Exception e)
-            {
-                Exception inner = e is TargetInvocationException t && t.InnerException != null ? t.InnerException : e;
-                Plugin.Log.LogError($"{method.DeclaringType?.FullName}.{method.Name} failed: {inner}");
-                return $"{method.Name} failed: {inner.Message}";
             }
         }
     }

@@ -14,6 +14,8 @@ namespace DevMenu
         public virtual void Tick() { }
         /// <summary>Draws on screen while the menu is closed (overlays).</summary>
         public virtual void DrawOverlay() { }
+        /// <summary>True: the page fills the window's height and scrolls its own parts (columns); the menu adds no scroll view.</summary>
+        public virtual bool OwnScroll => false;
     }
 
     /// <summary>The window: F9 toggles it, tabs on top. While open the game's controls are off and the cursor is free.</summary>
@@ -76,7 +78,9 @@ namespace DevMenu
             tabs.Add(new TeleportTab());
             tabs.Add(inspector);
             tabs.Add(new TimeTab());
-            tabs.Add(new ToolsTab());
+            tabs.Add(new ReloadTab());
+            tabs.Add(new FpsTab());
+            tabs.Add(new DebugTab());
         }
 
         private void Update()
@@ -85,12 +89,45 @@ namespace DevMenu
             bool hotkeys = !SettingsEditor.IsCapturing;
             if (hotkeys && Input.GetKeyDown(Plugin.MenuKey.Value))
                 SetOpen(!open);
-            if (hotkeys && !open && Input.GetKeyDown(Plugin.InspectKey.Value))
-                Run("Inspect", () => inspector.CaptureAndSave());
+            if (hotkeys && Input.GetKeyDown(Plugin.InspectKey.Value))
+                Run("Inspect", InspectKey);
             foreach (Tab tab in tabs)
                 Run(tab.Title, tab.Tick);
             if (open)
                 HoldControls();
+            // The Inspector's UI page: clicks select UI elements, the game's UI mustn't act on them.
+            Run("Hold UI", () => inspector.Ui.HoldGameUi(open && tabs[current] == inspector && inspector.UiPage));
+        }
+
+        // Menu closed: with the game's menu open (inventory, a container) the UI under the mouse, else the world under the crosshair.
+        // Menu open: what's under the mouse outside the window, the UI if there's any there, else the world; its Inspector page is shown.
+        private void InspectKey()
+        {
+            if (!open)
+            {
+                if (UiInspector.GameMenuOpen)
+                    inspector.Ui.CaptureAndSave();
+                else
+                    inspector.CaptureAndSave();
+                return;
+            }
+            var gui = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
+            if (window.Contains(gui))
+                return;
+            inspector.UiPage = inspector.Ui.CaptureAndSave(quiet: true);
+            if (!inspector.UiPage)
+                inspector.PickAt(gui);
+            Show(inspector);
+        }
+
+        // Switches to the tab without its OnOpen (the Inspector's would replace the pick with the crosshair's target).
+        private void Show(Tab tab)
+        {
+            int index = tabs.IndexOf(tab);
+            if (index == current)
+                return;
+            current = index;
+            scroll = Vector2.zero;
         }
 
         // The camera reads the mouse in its LateUpdate unless these flags are set. Something in the game can clear them
@@ -166,14 +203,22 @@ namespace DevMenu
                 if (Event.current.type == EventType.MouseDown && !window.Contains(Event.current.mousePosition))
                 {
                     Dropdown.Close();
-                    // Inspector open: a left click on the game picks the object under the mouse.
+                    // Inspector open: a left click on the game picks the object (or, on the UI page, the UI element) under the mouse.
                     if (Event.current.button == 0 && tabs[current] == inspector)
                     {
                         Vector2 at = Event.current.mousePosition;
-                        Run("Pick", () => inspector.PickAt(at));
+                        if (inspector.UiPage)
+                            Run("Pick UI", () => inspector.Ui.PickAt(at));
+                        else
+                            Run("Pick", () => inspector.PickAt(at));
                         Event.current.Use();
                     }
                 }
+                // The selection's green frame, under the window, only while the menu is open: the Inspector page's own (World or UI).
+                if (inspector.UiPage)
+                    Run("UI frame", inspector.Ui.DrawFrame);
+                else
+                    Run("Frame", inspector.DrawFrame);
                 window = GUI.Window(WindowId, window, DrawWindow, GUIContent.none); // the title is drawn by DrawWindow
                 if (resized.HasValue)
                 {
@@ -204,12 +249,22 @@ namespace DevMenu
 
             GUIStyle bar = GUI.skin.verticalScrollbar;
             ContentWidth = window.width - GUI.skin.window.padding.horizontal - bar.fixedWidth - bar.margin.horizontal - 4f;
-            scroll = GUILayout.BeginScrollView(scroll);
-            GUILayout.BeginVertical();
-            Run(tabs[current].Title, tabs[current].Draw);
-            GUILayout.EndVertical();
-            WarnIfTooWide(tabs[current].Title);
-            GUILayout.EndScrollView();
+            if (tabs[current].OwnScroll)
+            {
+                GUILayout.BeginVertical(GUILayout.ExpandHeight(true));
+                Run(tabs[current].Title, tabs[current].Draw);
+                GUILayout.EndVertical();
+                WarnIfTooWide(tabs[current].Title);
+            }
+            else
+            {
+                scroll = GUILayout.BeginScrollView(scroll);
+                GUILayout.BeginVertical();
+                Run(tabs[current].Title, tabs[current].Draw);
+                GUILayout.EndVertical();
+                WarnIfTooWide(tabs[current].Title);
+                GUILayout.EndScrollView();
+            }
 
             Dropdown.Paint(window.size);
             DrawHint();
@@ -219,6 +274,13 @@ namespace DevMenu
         // A round ✕ in the title bar's top-right corner. Drawn before the drag area, so it gets its clicks.
         /// <summary>The width a tab's page has without a horizontal scrollbar. For content that wraps by hand (<see cref="Gui.WrapToggles"/>).</summary>
         public static float ContentWidth { get; private set; } = 700f;
+
+        /// <summary>Back to the top of the page (e.g. a new page of a list, picked at its bottom).</summary>
+        public static void ScrollToTop()
+        {
+            if (instance != null)
+                instance.scroll = Vector2.zero;
+        }
 
         private readonly HashSet<string> warnedWide = new HashSet<string>();
 

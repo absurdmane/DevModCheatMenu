@@ -170,10 +170,11 @@ namespace DevMenu
             GUI.GetNameOfFocusedControl() == controlName;
     }
 
-    /// <summary>A searchable list: substring, case-insensitive; shows at most <see cref="MaxRows"/> rows.</summary>
+    /// <summary>A searchable list: substring, case-insensitive; <see cref="MaxRows"/> rows a page, pager above and below them.</summary>
     internal sealed class SearchList<T>
     {
         private const int MaxRows = 50;
+        private int page;
 
         private readonly Func<IEnumerable<T>> source;
         private readonly Func<T, string> label;
@@ -192,6 +193,7 @@ namespace DevMenu
         {
             all = null;
             shownFor = null;
+            page = 0;
         }
 
         /// <summary>Draws the field and the rows; returns the clicked item or default.</summary>
@@ -214,14 +216,61 @@ namespace DevMenu
                 string q = query.Trim().ToLowerInvariant();
                 shown = (q.Length == 0 ? all : all.Where(x => label(x).ToLowerInvariant().Contains(q))).ToList();
                 shownFor = query;
+                page = 0;
             }
 
-            GUILayout.Label($"{shown.Count} of {all.Count}" + (shown.Count > MaxRows ? $", first {MaxRows} shown" : ""));
+            int pages = Mathf.Max(1, (shown.Count + MaxRows - 1) / MaxRows);
+            page = Mathf.Clamp(page, 0, pages - 1);
+            int from = page * MaxRows;
+            int to = Mathf.Min(shown.Count, from + MaxRows);
+            GUILayout.Label($"{shown.Count} of {all.Count}" + (pages > 1 ? $", {from + 1}–{to} shown" : ""));
+            Pager(pages);
             T clicked = default;
-            foreach (T item in shown.Take(MaxRows))
+            foreach (T item in shown.Skip(from).Take(MaxRows))
                 if (GUILayout.Button(label(item), Gui.Row))
                     clicked = item;
+            // The same pager under the rows: no scrolling back up to turn the page. A new page starts at the top.
+            if (Pager(pages))
+                Menu.ScrollToTop();
             return clicked;
+        }
+
+        /// <summary>
+        /// [First] [Prev]  Page N / M  [Next] [Last], centred; only with more than one page. First/Last are left out when the
+        /// row wouldn't fit the page. Returns true when the page changed.
+        /// </summary>
+        private bool Pager(int pages)
+        {
+            if (pages <= 1)
+                return false;
+            GUIStyle button = GUI.skin.button;
+            string text = $"Page {page + 1} / {pages}";
+            // The widest the label gets, so the buttons don't shift as the number grows.
+            float labelWidth = GUI.skin.label.CalcSize(new GUIContent($"Page {pages} / {pages}")).x;
+            float Width(string s) => button.CalcSize(new GUIContent(s)).x + button.margin.horizontal;
+            bool ends = Width("First") + Width("Prev") + labelWidth + 16f + Width("Next") + Width("Last") <= Menu.ContentWidth;
+
+            int before = page;
+            bool enabled = GUI.enabled;
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            GUI.enabled = enabled && page > 0;
+            if (ends && GUILayout.Button("First", GUILayout.ExpandWidth(false)))
+                page = 0;
+            if (GUILayout.Button("Prev", GUILayout.ExpandWidth(false)))
+                page--;
+            GUI.enabled = enabled;
+            Gui.CenteredLabel(text, labelWidth + 16f);
+            GUI.enabled = enabled && page < pages - 1;
+            if (GUILayout.Button("Next", GUILayout.ExpandWidth(false)))
+                page++;
+            if (ends && GUILayout.Button("Last", GUILayout.ExpandWidth(false)))
+                page = pages - 1;
+            GUI.enabled = enabled;
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            page = Mathf.Clamp(page, 0, pages - 1);
+            return page != before;
         }
     }
 }

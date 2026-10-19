@@ -13,7 +13,11 @@ namespace DevMenu
     {
         public override string Title => "Tenement";
 
-        private int apartmentNumber = 1;
+        private const int Building = 0; // apartments are numbered from 1
+        /// <summary>What the left column has picked: <see cref="Building"/> or an apartment number.</summary>
+        private int selected = Building;
+        private Vector2 pickerScroll;
+        private Vector2 upgradesScroll;
 
         private sealed class Line
         {
@@ -25,6 +29,8 @@ namespace DevMenu
             public Action Reset;
         }
 
+        public override bool OwnScroll => true;
+
         public override void Draw()
         {
             TenementController tc = TenementController.instance;
@@ -34,25 +40,101 @@ namespace DevMenu
                 return;
             }
 
-            DrawShop(tc);
+            // On: requirements come along when upgrading, dependents go down when downgrading. Off: the picked line alone.
+            bool linked = Gui.Toggle("Linked upgrades: requirements follow", Plugin.LinkedUpgrades.Value);
+            if (linked != Plugin.LinkedUpgrades.Value)
+                Plugin.LinkedUpgrades.Value = linked;
+            GUILayout.Space(4);
 
-            TenementApartment apartment = tc.GetApartmentFromNumber(apartmentNumber);
+            List<(int number, string label, int floor)> items = PickerItems(tc);
+            float pickerWidth = items.Select(i => Gui.Row.CalcSize(new GUIContent(i.label)).x).DefaultIfEmpty(0f).Max()
+                                + Gui.Row.margin.horizontal + ScrollbarRoom + 4f; // + the vertical bar, so no horizontal one
+            // Below this the two columns don't fit side by side: the picker goes above the upgrades, in one scroll view.
+            float upgradesMin = 12f + 2 * 120f + 3 * GUI.skin.button.margin.horizontal + ScrollbarRoom;
 
-            Gui.CenteredHeading("Building");
-            DrawSections("building", BuildingLines(tc.general), apartment);
+            if (Menu.ContentWidth < pickerWidth + upgradesMin)
+            {
+                pickerScroll = GUILayout.BeginScrollView(pickerScroll, GUILayout.ExpandHeight(true));
+                Menu.Run("Tenement picker", () => DrawPicker(items));
+                GUILayout.Space(8);
+                Menu.Run("Tenement upgrades", () => DrawSelected(tc));
+                GUILayout.EndScrollView();
+                return;
+            }
 
-            Gui.CenteredHeading("Apartment");
-            // A dozen and more apartments: they wrap onto more rows instead of widening the page.
-            List<TenementApartment> all = tc.apartments.OrderBy(a => a.apartmentNumber).ToList();
-            int picked = Gui.WrapToggles(
-                all.Select(a => a.apartmentNumber == 1 ? "Player apartment" : a.apartmentNumber == 2 ? "Shop" : a.apartmentNumber.ToString()).ToList(),
-                all.FindIndex(a => a.apartmentNumber == apartmentNumber));
-            if (picked >= 0)
-                apartmentNumber = all[picked].apartmentNumber;
+            GUILayout.BeginHorizontal(GUILayout.ExpandHeight(true));
+            pickerScroll = GUILayout.BeginScrollView(pickerScroll, GUILayout.Width(pickerWidth), GUILayout.ExpandHeight(true));
+            Menu.Run("Tenement picker", () => DrawPicker(items));
+            GUILayout.EndScrollView();
+            upgradesScroll = GUILayout.BeginScrollView(upgradesScroll, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+            Menu.Run("Tenement upgrades", () => DrawSelected(tc));
+            GUILayout.EndScrollView();
+            GUILayout.EndHorizontal();
+        }
+
+        private static float ScrollbarRoom => GUI.skin.verticalScrollbar.fixedWidth + GUI.skin.verticalScrollbar.margin.horizontal;
+
+        /// <summary>
+        /// What the left column lists: the building, then the apartments floor by floor, from the game's own <c>apartmentFloor</c>
+        /// (floor 1: the player apartment and the shop). floor = -1 for the building.
+        /// </summary>
+        private static List<(int number, string label, int floor)> PickerItems(TenementController tc)
+        {
+            var items = new List<(int, string, int)> { (Building, "Building", -1) };
+            foreach (TenementApartment a in tc.apartments.OrderBy(a => a.apartmentFloor).ThenBy(a => a.apartmentNumber))
+                items.Add((a.apartmentNumber, ApartmentName(a), a.apartmentFloor));
+            return items;
+        }
+
+        private static string ApartmentName(TenementApartment a)
+        {
+            if (a.apartmentNumber == 1)
+                return "Player apartment";
+            if (a.apartmentNumber == 2)
+                return "Shop";
+            return a.type != null ? $"Apartment {a.apartmentNumber} · {a.type.size}" : $"Apartment {a.apartmentNumber}";
+        }
+
+        /// <summary>One full-width toggle per item, "Floor N" above each floor's apartments.</summary>
+        private void DrawPicker(List<(int number, string label, int floor)> items)
+        {
+            int floor = int.MinValue;
+            foreach (var (number, label, itemFloor) in items)
+            {
+                if (itemFloor != floor && itemFloor >= 0)
+                {
+                    GUILayout.Space(6);
+                    GUILayout.Label($"Floor {itemFloor}");
+                }
+                floor = itemFloor;
+                if (GUILayout.Toggle(selected == number, label, Gui.Row) && selected != number)
+                {
+                    selected = number;
+                    upgradesScroll = Vector2.zero;
+                }
+            }
+        }
+
+        /// <summary>The right column: the upgrades of what's picked on the left.</summary>
+        private void DrawSelected(TenementController tc)
+        {
+            if (selected == Building)
+            {
+                Gui.CenteredHeading("Building");
+                // Building upgrades don't look at an apartment; the player's is what the game passes too.
+                DrawSections("building", BuildingLines(tc.general), tc.GetApartmentFromNumber(1));
+                return;
+            }
+            TenementApartment apartment = tc.GetApartmentFromNumber(selected);
             if (apartment == null)
-                GUILayout.Label("No such apartment.");
-            else
-                DrawSections("apartment " + apartment.apartmentNumber, ApartmentLines(apartment), apartment);
+            {
+                GUILayout.Label("Pick the building or an apartment on the left.");
+                return;
+            }
+            Gui.CenteredHeading(ApartmentName(apartment));
+            if (apartment.apartmentNumber == 2)
+                DrawShop(apartment);
+            DrawSections("apartment " + apartment.apartmentNumber, ApartmentLines(apartment), apartment);
         }
 
         /// <summary>Lines under small section headings, in the order given.</summary>
@@ -76,11 +158,8 @@ namespace DevMenu
         /// The shop's plywood "Start Blocker" is its <c>cleaningTimerBlocker</c>. The cleaning timer is started from a dialogue
         /// (<c>StartApartmentCleaningTimer</c>): -1 = not started, > 0 = cleaning until that day, 0 = done (the blocker is destroyed).
         /// </summary>
-        private static void DrawShop(TenementController tc)
+        private static void DrawShop(TenementApartment shop)
         {
-            TenementApartment shop = tc.GetApartmentFromNumber(2);
-            if (shop == null)
-                return;
             if (shop.cleaningTimerCompleteDay != 0)
             {
                 if (GUILayout.Button("Open the shop (remove the plywood)", GUILayout.ExpandWidth(false)))
@@ -139,7 +218,7 @@ namespace DevMenu
                     i => Menu.Run(line.Label, () =>
                     {
                         string done = actions[i]();
-                        List<string> lowered = Enforce();
+                        List<string> lowered = Plugin.LinkedUpgrades.Value ? Enforce() : new List<string>();
                         Menu.Notify(lowered.Count == 0 ? done : $"{done}. Also lowered, their requirements are gone: {string.Join(", ", lowered)}");
                     }),
                     120f);
@@ -165,7 +244,7 @@ namespace DevMenu
             upgrade.requiredUpgrades == null || upgrade.requiredUpgrades.All(r => r == null || SafeIsUpgraded(r, apartment));
 
         /// <summary>
-        /// Upgrading pulls its requirements in (<see cref="Apply(TenementUpgrade, TenementApartment)"/>); this is the other way round.
+        /// With <c>LinkedUpgrades</c> on. Upgrading pulls its requirements in (<see cref="Apply(TenementUpgrade, TenementApartment)"/>); this is the other way round.
         /// After a change, every line of the building and of every apartment whose current level no longer has its requirements
         /// (e.g. apartment electricity above the building's) goes down to the highest level that still has them, or to none.
         /// Repeated until nothing changes, since one drop can break another. Returns what was lowered.
@@ -208,6 +287,11 @@ namespace DevMenu
 
         private string Apply(TenementUpgrade upgrade, TenementApartment apartment)
         {
+            if (!Plugin.LinkedUpgrades.Value)
+            {
+                SetLevel(upgrade, apartment);
+                return "Applied: " + NameOf(upgrade, apartment);
+            }
             var applied = new List<string>();
             Apply(upgrade, apartment, applied, new HashSet<TenementUpgrade>());
             return "Applied: " + string.Join(", ", applied);

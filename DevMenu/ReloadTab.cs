@@ -4,10 +4,10 @@ using UnityEngine.SceneManagement;
 
 namespace DevMenu
 {
-    /// <summary>Reloads, the FPS window switch.</summary>
-    internal sealed class ToolsTab : Tab
+    /// <summary>Reloading the game (with or without saving) and hot reload of the mods and scripts in BepInEx\scripts.</summary>
+    internal sealed class ReloadTab : Tab
     {
-        public override string Title => "Tools";
+        public override string Title => "Reload";
 
         private const string QuickSave = "DevQuick";
 
@@ -32,15 +32,10 @@ namespace DevMenu
                 ScriptLoader.Reload(all: false);
             if (GUILayout.Button("Reload all", GUILayout.ExpandWidth(false)))
                 ScriptLoader.Reload(all: true);
-            GUILayout.Label("mods in BepInEx\\scripts (build them with -p:Deploy=scripts)");
+            GUILayout.Label("mods and debug scripts in BepInEx\\scripts (build them with -p:Deploy=scripts)");
             GUILayout.EndHorizontal();
             foreach ((string name, string file, System.DateTime built) in ScriptLoader.Plugins)
                 GUILayout.Label($"   {name}   <i>{file}, built {built:HH:mm:ss}</i>");
-
-            Gui.Heading("FPS");
-            // A short label on the check button (it doesn't wrap); the details go in a wrapping label under it.
-            FpsWindow.Visible = Gui.Toggle("FPS window", FpsWindow.Visible);
-            GUILayout.Label("Stays open with the menu closed.");
         }
 
         private static void Reload(bool save)
