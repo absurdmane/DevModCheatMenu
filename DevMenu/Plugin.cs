@@ -12,7 +12,7 @@ namespace DevMenu
     {
         public const string Guid = "obenseuer.absurdmane.devmenu";
         public const string Name = "Dev, Mod & Cheat Menu";
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
 
         internal static ManualLogSource Log;
 

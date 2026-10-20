@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Mods tab: settings in the order the mod registers them; a mod's `[Mod] Enabled` switch on top; smaller section headings.
+
+## 1.2.0
+
+- Tenement tab in two columns: the building and the apartments by floor on the left, the picked one's upgrades on the right.
+- Tenement: a "Linked upgrades" switch. On (default): upgrading also gets the upgrades it needs, and downgrading lowers the
+  ones that need it. Off: only the picked upgrade changes. Setting `[Tenement] LinkedUpgrades`.
+- Items and Furniture search lists are paged, 50 a page (before, only the first 50 results could be reached).
 - FPS window: garbage collection info. It counts collections and shows the gap between them, the managed heap size, and
   whether the last slow frame had a collection in it; collections are marked on the graph.
 - The Tools tab is split into Reload (reload the game, hot reload) and FPS (the FPS window, the spike profiler).
